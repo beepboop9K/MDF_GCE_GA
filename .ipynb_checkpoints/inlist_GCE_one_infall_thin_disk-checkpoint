@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+################################
+#
+# OMEGA parameter file
+#
+# Authors: M Joyce, T Trueman
+#
+################################
+
+############################################################
+#
+# DO NOT PUT COMMENTS AFTER VALUE ASSIGNMENTS!
+# Comments must be on separate lines or the parser 
+# in one_GCE_run.py will skip those assignments
+#
+# also, do not use quotes around strings!
+#
+############################################################
+
+sys.path.append('/home/mjoyce/bulge_isochrones/GCE_modeling/NuPyCEE/yield_tables/iniabu/')
+
+
+model_name = thin_disk_one_infall_default
+
+
+## 200 fine, 500 extreme
+timesteps = 100 
+
+
+############################################################
+#
+# sigma_2 in 'twoinfall_sigmas': [1300, sigma_2]
+#
+## setting the ratio to be outrageous in order to suppress the first infall entirely
+## sigma_2 = c2/c1 (equations 5 and 6 in Spitoni et al. 2019)
+## to do a 2-infall model, want to sweep these, as we did before
+#
+# two scenarios: 
+# one-infall model, sigma_2 = 1e9 to ignore first infall
+# two-infall model, sweep sigma_2: np.arange(0.5, 10.5, 1.0)
+#
+############################################################
+sigma_2 = 1e9
+
+
+############################################################
+#
+# Galactic radius, fixed
+#
+############################################################
+galradius = 1800
+
+
+############################################################
+#
+# For each infall episode, exp_infall --> [Norm, t_max, timescale]
+# 'exp_infall':[[-1, 0.1e9, 0.1e9], [A2, t_2*1e9, infall_2*1e9]]
+#
+# How many Gyr after the birth of the universe
+# did the second infall happen?
+#
+# this is t_2 in exp_infall vector
+#
+# default thin disk assumption is 8 Gyr ago (+/- 5 Gyr) 
+# 13 - 8 = 5 --> tmax_2 = 5 Gyr
+# long, slow inflow at solar -- Gaia Enceladus Sausage
+#
+############################################################
+## always this value for one-infall scenario
+tmax_1 = 0.1e9
+# injection happened this many Gyr after birth of galaxy 
+tmax_2 = 5  
+
+
+
+############################################################
+# What is the timescale (tau) over which the 
+# second infall injects material? 
+#
+# default thin disk: 5 Gyr to fall in, coming in at solar composition 
+#
+# this is infall_2 in exp_infall vector
+#
+############################################################
+## always this value for one-infall scenario
+infall_1 = 0.1e9 
+## 5 Gyr to fall in
+infall_2 = 5     
+
+
+
+############################################################
+# bounded by 3e10 strictly -- doesn't get added to dict above this; below ~1e8 effects are minimal
+# initial mass of the galaxy -- pristine gas/primordial abundance/ zero metallicity
+#
+# sweep this and throw out any after simulation that do not correctly attain
+# the mass of the bulge within 5%
+#
+############################################################
+mgal = 2e9 
+
+
+############################################################
+## stellar yield assumption
+## (1) Limongi Chieffi rotation agb_and_massive_stars_K10_LC18_Ravg.txt
+## (2) Nomoto agb_and_massive_stars_C15_N13_0_0_HNe.txt
+sy = agb_and_massive_stars_K10_LC18_Ravg.txt
+############################################################
+
+
+
+############################################################
+# ## star formation efficiency
+# reference for this is Grisoni et al. (2020), from Tejpreet : 20 x 10^-3
+#
+# default value should be 0.02
+#
+# sweep: np.arange(0.01, 0.035, 0.005)
+#
+############################################################
+sfe_val = 0.02
+
+
+############################################################
+## initial mass function
+## two options: Kroupa, Salpeter
+############################################################
+imf_val = kroupa
+
+## sn1a table
+# sn1a_header = './NuPyCEE/yield_tables/'
+sn1a = sn1a_Gronow.txt
+
+
+############################################################
+# ## maximum mass of stars we consider
+#
+# Limiting the upper mass of the IMF can be used as a proxy in the case that the yield set(s) 
+# do not include the treatment of failed supernovae that directly collapse to a BH,  
+# (see e.g., Pignatari+2023 on Planet-hosting stars).
+#
+# we ignore the yields of any stars above X = 50, 100 whatever
+#
+############################################################
+imf_upper = 50
+
+
+############################################################
+# for composition of infall
+#
+# change the metallicity of the infall by scaling the
+# yield tables to particular abundances -- Christian's files
+#
+############################################################
+composition  = iniab_output_feh_p000.txt
+
+
+############################################################
+#
+# number of type 1a SNe made per stellar mass
+#
+# Cote et al. 2016, Table 5 -- sweep the table
+#
+# default: 1e-3 -- default in OMEGA
+#
+############################################################
+nb = 1e-3
+
+
+
+############################################################
+#
+# fix this to one delay-time distribution form
+#
+############################################################
+sn1a_form = power_law
+
