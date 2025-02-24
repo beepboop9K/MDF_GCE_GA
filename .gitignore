@@ -13,7 +13,7 @@
 *.sqlite
 *.log
 *.out
-*.dat
+#*.dat
 
 # Ignore images and binary data
 *.png
