@@ -605,7 +605,7 @@ class GalacticEvolutionGA:
         huber = self.compute_huber(theory_count_array)
         cos_similarity = self.compute_cosine_similarity(theory_count_array)
         log_cosh = self.compute_log_cosh(theory_count_array)
-        ensemble = self.compute_ensemble_metric(theory_count_array)
+        ensemble_metric = self.compute_ensemble_metric(theory_count_array)
         ks = self.compute_ks_distance(theory_count_array)
         return ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh
 
