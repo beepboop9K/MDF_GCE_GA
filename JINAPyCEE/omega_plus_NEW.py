@@ -1857,7 +1857,7 @@ class omega_plus():
                       else:
                           norm = self.exp_infall[i_in][0]
 
-                      if self.oldold == True:
+                      if self.oldold is True:
                           finf = 0.2*norm*np.exp(-((age_now + dtt)-tmax)/tau)
                           cooling_rate += finf
 

@@ -108,7 +108,7 @@ for i in range(0,nb_elements):
 #          "ns_merger_on":True, "nsm_dtd_power":[1e7, 10e9, -1]}
 
 # Common parameters to all yields table
-kwargs = dict()
+kwargs = {}
 kwargs["special_timesteps"] = 150
 kwargs["t_star"] = 1.0
 kwargs["mgal"] = 1.0

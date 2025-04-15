@@ -1,12 +1,16 @@
 #!/usr/bin/env python3.8
 ################################
-# Author: M Joyce, N Miller
+# Author: N Miller, M Joyce, (ChatGPT 4o for delint things)
 ################################
 
 # Importing required libraries
 import matplotlib.pyplot as plt
 import warnings
 import numpy as np
+
+
+import matplotlib.animation as animation
+from mpl_toolkits.mplot3d import Axes3D
 
 # Suppress specific RuntimeWarnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -157,7 +161,7 @@ for i in range(len(GalGA.mdf_data)):
     if np.allclose(params, best_params, rtol=1e-5):
         plt.plot(x_data, y_data, label=f'{label} (BEST)', color='red', linewidth=2, zorder=3)
     else:
-        plt.plot(x_data, y_data, label=label, alpha=0.5, zorder=1)
+        plt.plot(x_data, y_data, alpha=0.5, zorder=1)
 
 # Plot the raw observational data (black crosses)
 plt.plot(feh, normalized_count, label='Observational Data', color='black', 
@@ -260,7 +264,6 @@ def plot_walker_history(walker_history, param_names):
                 label=f"Walker {walker_idx}",
                 alpha=0.5  # Adjust transparency for better visualization
             )
-        print(history[:, param_idx])
         plt.xlabel("Generation")
         plt.ylabel(f"{param_name} Value")
         plt.title(f"Evolution of {param_name} Over Generations")
@@ -270,13 +273,51 @@ def plot_walker_history(walker_history, param_names):
         plt.savefig(f'GA/loss/walker_evolution_{param_name}.png', bbox_inches='tight')
         #plt.show()
 
-
-# Assuming walker_history tracks ['sigma_2', 'tmax_2', 'infall_2']
+walker_history = GalGA.walker_history
 param_names = ["sigma_2", "tmax_2", "infall_2"]
-plot_walker_history(GalGA.walker_history, param_names)
+plot_walker_history(walker_history, param_names)
 
 
 
+
+# Extract total generations
+num_generations = max(len(v) for v in walker_history.values())
+
+# Initialize figure
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Colors for walkers
+colors = plt.cm.viridis(np.linspace(0, 1, len(walker_history)))
+
+# Labels
+ax.set_xlabel("Generation")
+ax.set_ylabel("tmax_2")
+ax.set_zlabel("infall_2")
+ax.set_title("Walker Evolution in 3D")
+
+# Animation function
+def update(num):
+    ax.clear()
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("tmax_2")
+    ax.set_zlabel("infall_2")
+    ax.set_title("Walker Evolution in 3D")
+    ax.view_init(elev=20, azim=num)  # Rotate by 1 degree per frame
+
+    for i, (walker_id, history) in enumerate(walker_history.items()):
+        history = np.array(history)
+        generations = np.arange(len(history[:num+1]))
+        ax.plot(generations, history[:num+1, 1], history[:num+1, 2], color=colors[i], alpha=0.7, label=f"Walker {i}")
+
+    ax.legend(loc="upper right", fontsize="small")
+
+
+# Create animation
+ani = animation.FuncAnimation(fig, update, frames=num_generations*2, interval=200, blit=False)
+# Save as GIF
+gif_path = "GA/loss/walker_evolution_3D.gif"
+ani.save(gif_path, writer="pillow", fps=20)
 
 
 

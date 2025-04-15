@@ -1,38 +1,24 @@
 #!/usr/bin/env python3.8
 ################################
-#
-# Author: M Joyce, N Miller, chatgpt
-#
+# Author: N Miller, M Joyce, (ChatGPT 4o for delint things)
 ################################
-import matplotlib
 #import imp
 import time
 import matplotlib.pyplot as plt
 import numpy as np
-import re
-import itertools
 import sys
 #from sklearn import preprocessing
 sys.path.append('../')
-from NuPyCEE import omega
 
-import multiprocessing
 import gc
-from string import printable
 from scipy.interpolate import CubicSpline
 from matplotlib import cm
 from matplotlib.lines import *
 from matplotlib.patches import *
-from NuPyCEE import read_yields
 from JINAPyCEE import omega_plus
-from NuPyCEE import stellab
-from NuPyCEE import sygma
-from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from multiprocessing.pool import ThreadPool
-from deap import base, creator, tools, algorithms
+from deap import base, creator, tools
 import random
-import matplotlib as mpl  # Importing the matplotlib module
-import csv
 
 # Function to find the index of the nearest value in an array
 def find_nearest(array, value):
@@ -540,6 +526,8 @@ class GalacticEvolutionGA:
         
         mutators = {'gaussian': self.custom_gaussian_mutate,
                     'uniform': self.custom_uniform_mutate,
+                    'data': self.data_driven_gaussian_mutate,
+                    'covariant': self.covariance_aware_mutate,
                     '': self.custom_mutate}
         mutator = mutators[self.fancy_mutation]
         toolbox.register("mutate", self.custom_mutate)
@@ -609,6 +597,101 @@ class GalacticEvolutionGA:
         ks = self.compute_ks_distance(theory_count_array)
         return ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh
 
+
+    def covariance_aware_mutate(self, individual, population, top_fraction=0.3, base_scale=1.0, regularization=1e-6):
+        """
+        Mutate the individual using a covariance-aware approach.
+        
+        Args:
+          individual: The individual to mutate (list of parameters).
+          population: The current population (list of individuals).
+          top_fraction: Fraction of best individuals to consider for covariance estimation.
+          base_scale: Global scaling factor for mutation magnitude.
+          regularization: Small constant to add to the covariance diagonal to ensure it's non-singular.
+        
+        Returns:
+          A mutated individual (as a tuple).
+        """
+        # Sort the population by fitness (assuming lower fitness is better)
+        pop_sorted = sorted(population, key=lambda ind: ind.fitness.values[0])
+        n_top = max(1, int(top_fraction * len(population)))
+        top_inds = pop_sorted[:n_top]
+        
+        # Convert top individuals to a NumPy array of shape (n_top, n_params)
+        # Assuming individuals are lists of length n (e.g., [sigma_2, t2, infall_2])
+        top_array = np.array(top_inds, dtype=float)
+        
+        # Compute covariance matrix of the top individuals (columns as variables)
+        cov_matrix = np.cov(top_array, rowvar=False)
+        # Regularize covariance matrix to avoid singularities
+        cov_matrix += np.eye(cov_matrix.shape[0]) * regularization
+        
+        # Scale the covariance matrix by base_scale: This controls overall mutation magnitude
+        scaled_cov = base_scale * cov_matrix
+        
+        # Sample a mutation vector from a multivariate normal with mean zero
+        mutation_vector = np.random.multivariate_normal(np.zeros(len(individual)), scaled_cov)
+        
+        # Apply mutation
+        for i in range(len(individual)):
+            individual[i] += mutation_vector[i]
+            # Clamp each gene within its bounds
+            if i == 0:  # sigma_2
+                individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
+            elif i == 1:  # t2
+                individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
+            elif i == 2:  # infall_2
+                individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
+        
+        return individual,
+
+
+    def data_driven_gaussian_mutate(self, individual, population, top_fraction=0.3, base_scale=1.0):
+        """
+        Mutate the individual using a data-driven approach.
+        
+        Args:
+          individual: the individual to mutate.
+          population: the current population.
+          top_fraction: fraction of individuals to consider as "successful" (e.g. top 30%).
+          base_scale: a global scaling factor (could be decreased over generations).
+          
+        Returns:
+          A mutated individual.
+        """
+        # Select the top fraction based on fitness values
+        pop_sorted = sorted(population, key=lambda ind: ind.fitness.values[0])
+        n_top = max(1, int(top_fraction * len(population)))
+        top_inds = pop_sorted[:n_top]
+        
+        # Extract gene arrays from the top individuals
+        # Assuming individuals are lists of length 3 (sigma_2, t2, infall_2)
+        top_genes = np.array(top_inds)  # shape (n_top, 3)
+        
+        # Compute per-gene standard deviations
+        std_devs = np.std(top_genes, axis=0)
+        # Prevent zeros in the std deviations (if all best individuals are the same for a gene)
+        std_devs[std_devs == 0] = 1e-6
+        
+        # Optionally, scale these by a factor that decreases over generations
+        # For now, we use base_scale as provided.
+        mutation_scales = base_scale * std_devs
+        
+        # Apply Gaussian mutation per gene
+        for i in range(len(individual)):
+            # Sample a mutation step from N(0, mutation_scales[i])
+            mutation = np.random.normal(0, mutation_scales[i])
+            individual[i] += mutation
+            
+            # Clamp within bounds
+            if i == 0:  # sigma_2
+                individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
+            elif i == 1:  # t2
+                individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
+            elif i == 2:  # infall_2
+                individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
+        
+        return individual,
 
     def custom_gaussian_mutate(self, individual, loss, population, fitnesses, base_range=1.0, shrink_range=False):
      
@@ -796,10 +879,10 @@ class GalacticEvolutionGA:
 
 
     def _run_genetic_algorithm(self, population, toolbox, num_generations, requantize):
+        self.walker_history = {i: [] for i in range(len(population))}  # Track each walker's history
         for gen in range(num_generations):
             print(f"-- Generation {gen + 1}/{num_generations} --")
             self.gen = gen
-            self.walker_history = {i: [] for i in range(len(population))}  # Track each walker's history
             # Step 1: Evaluate individuals with invalid fitness
             invalid_ind = [ind for ind in population if not ind.fitness.valid]
             if invalid_ind:
@@ -988,7 +1071,7 @@ class GalacticEvolutionGA:
             'label': label,
             'x_data': x_data,
             'y_data': y_data,
-            'metrics': [ks, ensemble, sigma_2, t_2, infall_2, wrmse, mae, mape, huber, cos_similarity, log_cosh],
+            'metrics': [sigma_2, t_2, infall_2, ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh],
             'cs_MDF': cs_MDF,
             'model_number': self.model_count
         }
