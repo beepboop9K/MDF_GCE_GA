@@ -44,8 +44,7 @@ feh, count = np.loadtxt(obs_file, usecols=(0, 1), unpack=True)
 normalized_count = count / count.max()  # Normalize count for comparison
 
 # Parse parameters from the 'bulge_pcard.txt' file
-#params = Gal_GA.parse_inlist('bulge_pcard.txt')
-params = Gal_GA.parse_inlist('Meridith_bulge_pcard.txt')
+params = Gal_GA.parse_inlist('bulge_pcard.txt')
 
 # Assign parsed parameters to variables
 iniab_header = params['iniab_header']
