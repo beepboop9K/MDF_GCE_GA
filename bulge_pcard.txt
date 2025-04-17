@@ -34,11 +34,11 @@ popsize: 32
 generations: 128
 
 #probability an individual will make babies. 
-crossover_probability: 0.8
+crossover_probability: 0.7
 
 #probability that any given invdividual is mutated by the GA
 #high probability = high genetic diversity but risks destroying the signal found with a good fit. 
-mutation_probability: 0.4
+mutation_probability: 0.3
 
 #the threshold at which a gene is considered sucessful.(-1 : threshold is median fitness of that sample)
 selection_threshold: -1
@@ -49,7 +49,7 @@ selection_threshold: -1
 #example : fitting a straight line to a sigmoid. The fastest good enough convergence will be a straight line. 
 #What happens in the likely scenario if the straight line appears in the sample of individuals without a more sophisticated sigmoid guess? i.e. a low order poly will appear before a high order in the evolutionary steps (assuming a nieve prior).
 #a high tournament size will be more likely to focus on faster and simpler solutions to this problem.
-tournament_size: 3
+tournament_size: 4
 
 #how the distance to the real data is caluclated : 'wrmse','mae','mape','huber','cosine_similarity','log_cosh','wrmse'
 loss_metric: 'ks'
