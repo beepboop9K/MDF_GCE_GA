@@ -462,6 +462,33 @@ class GalacticEvolutionGA:
         self.tournament_size = tournament_size
         self.lambda_diversity = lambda_diversity #A higher value places more emphasis on diversity.
 
+
+        # Define which indices are categorical vs continuous
+        self.categorical_indices = [0, 1, 2, 3, 4]  # comp, imf, sn1a, stellar_yield, sn1a_rate
+        self.continuous_indices = [5, 6, 7, 8, 9, 10, 11, 12, 13]  # sigma_2, t_1, t_2, etc.
+        
+        # Map from index to parameter name (for getting bounds dynamically)
+        self.index_to_param_map = {
+            0: 'comp_array',
+            1: 'imf_array',
+            2: 'sn1a_assumptions',
+            3: 'stellar_yield_assumptions',
+            4: 'sn1a_rates',
+            5: 'sigma_2',
+            6: 'tmax_1',
+            7: 'tmax_2',
+            8: 'infall_timescale_1',
+            9: 'infall_timescale_2',
+            10: 'sfe',
+            11: 'imf_upper_limits',
+            12: 'mgal_values',
+            13: 'nb_array'
+        }
+
+
+
+
+
     def selDiversityTournament(self, individuals, tournsize, lambda_diversity=0.1):
         """
         Custom tournament selection that promotes diversity.
@@ -507,14 +534,33 @@ class GalacticEvolutionGA:
         # Toolbox to define how individuals (solutions) are created and evolve
         toolbox = base.Toolbox()
 
-        # Register attribute generators with independent selection for each parameter
-        toolbox.register("sigma_2_attr", lambda: self.sigma_2_list[random.randint(0, len(self.sigma_2_list) - 1)])
-        toolbox.register("t_2_attr", lambda: self.tmax_2_list[random.randint(0, len(self.tmax_2_list) - 1)])
-        toolbox.register("infall_2_attr", lambda: self.infall_timescale_2_list[random.randint(0, len(self.infall_timescale_2_list) - 1)])
+        # Register attribute generators for all parameters
+        # Truly discrete choices (categorical parameters)
+        toolbox.register("comp_attr", lambda: random.randint(0, len(self.comp_array) - 1))
+        toolbox.register("imf_attr", lambda: random.randint(0, len(self.imf_array) - 1))
+        toolbox.register("sn1a_attr", lambda: random.randint(0, len(self.sn1a_assumptions) - 1))
+        toolbox.register("sy_attr", lambda: random.randint(0, len(self.stellar_yield_assumptions) - 1))
+        toolbox.register("sn1a_rate_attr", lambda: random.randint(0, len(self.sn1a_rates) - 1))
+        
+        # Continuous parameters
+        toolbox.register("sigma_2_attr", random.uniform, min(self.sigma_2_list), max(self.sigma_2_list))
+        toolbox.register("t_1_attr", random.uniform, min(self.tmax_1_list), max(self.tmax_1_list))
+        toolbox.register("t_2_attr", random.uniform, min(self.tmax_2_list), max(self.tmax_2_list))
+        toolbox.register("infall_1_attr", random.uniform, min(self.infall_timescale_1_list), max(self.infall_timescale_1_list))
+        toolbox.register("infall_2_attr", random.uniform, min(self.infall_timescale_2_list), max(self.infall_timescale_2_list))
+        toolbox.register("sfe_attr", random.uniform, min(self.sfe_array), max(self.sfe_array))
+        toolbox.register("imf_upper_attr", random.uniform, min(self.imf_upper_limits), max(self.imf_upper_limits))
+        toolbox.register("mgal_attr", random.uniform, min(self.mgal_values), max(self.mgal_values))
+        toolbox.register("nb_attr", random.uniform, min(self.nb_array), max(self.nb_array))
 
-        # Create an individual by combining the three attributes (sigma_2, t_2, infall_2)
+        # Create an individual by combining all attributes
         toolbox.register("individual", tools.initCycle, creator.Individual,
-                         (toolbox.sigma_2_attr, toolbox.t_2_attr, toolbox.infall_2_attr), n=1)
+                         (toolbox.comp_attr, toolbox.imf_attr, toolbox.sn1a_attr, 
+                          toolbox.sy_attr, toolbox.sn1a_rate_attr,
+                          toolbox.sigma_2_attr, toolbox.t_1_attr, toolbox.t_2_attr, 
+                          toolbox.infall_1_attr, toolbox.infall_2_attr,
+                          toolbox.sfe_attr, toolbox.imf_upper_attr, 
+                          toolbox.mgal_attr, toolbox.nb_attr), n=1)
 
         # Create a population by repeating individuals
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
@@ -522,23 +568,15 @@ class GalacticEvolutionGA:
         # Register the evaluation function
         toolbox.register("evaluate", self.evaluate)
 
-        # Register genetic operations: crossover (blending) and mutation (custom)
-        toolbox.register("mate", tools.cxBlend, alpha=0.5)
-        
-        mutators = {'gaussian': self.custom_gaussian_mutate,
-                    'uniform': self.custom_uniform_mutate,
-                    'data': self.data_driven_gaussian_mutate,
-                    'covariant': self.covariance_aware_mutate,
-                    '': self.custom_mutate}
-        mutator = mutators[self.fancy_mutation]
-        toolbox.register("mutate", self.custom_mutate)
-
-        # Register diversity-promoting selection instead of plain tournament selection
+        # Register genetic operations
+        toolbox.register("mate", self.custom_crossover, alpha=0.5)
+        toolbox.register("mutate", self.expanded_mutate)
         toolbox.register("select", self.selDiversityTournament, tournsize=self.tournament_size, lambda_diversity=self.lambda_diversity)
 
         # Create the initial population
         population = toolbox.population(n=population_size)
         return population, toolbox
+
 
     def compute_ks_distance(self, theory_count_array):
         """
@@ -625,302 +663,75 @@ class GalacticEvolutionGA:
         
         return selected
 
+
+
     def covariance_aware_mutate(self, individual, population, top_fraction=0.3, base_scale=1.0, regularization=1e-6):
         """
-        Mutate the individual using a covariance-aware approach.
-        
-        Args:
-          individual: The individual to mutate (list of parameters).
-          population: The current population (list of individuals).
-          top_fraction: Fraction of best individuals to consider for covariance estimation.
-          base_scale: Global scaling factor for mutation magnitude.
-          regularization: Small constant to add to the covariance diagonal to ensure it's non-singular.
-        
-        Returns:
-          A mutated individual (as a tuple).
+        An expanded version of covariance_aware_mutate that handles all parameters.
+        For categorical parameters, we use a simpler approach.
         """
-        # Sort the population by fitness (assuming lower fitness is better)
+        # Sort the population by fitness
         pop_sorted = sorted(population, key=lambda ind: ind.fitness.values[0])
         n_top = max(1, int(top_fraction * len(population)))
         top_inds = pop_sorted[:n_top]
         
-        # Convert top individuals to a NumPy array of shape (n_top, n_params)
-        # Assuming individuals are lists of length n (e.g., [sigma_2, t2, infall_2])
-        top_array = np.array(top_inds, dtype=float)
+        # Get parameter type information
+        categorical_indices = self.categorical_indices
+        continuous_indices = self.continuous_indices
         
-        # Compute covariance matrix of the top individuals (columns as variables)
-        cov_matrix = np.cov(top_array, rowvar=False)
-        # Regularize covariance matrix to avoid singularities
-        cov_matrix += np.eye(cov_matrix.shape[0]) * regularization
-        
-        # Scale the covariance matrix by base_scale: This controls overall mutation magnitude
-        scaled_cov = base_scale * cov_matrix
-        
-        # Sample a mutation vector from a multivariate normal with mean zero
-        mutation_vector = np.random.multivariate_normal(np.zeros(len(individual)), scaled_cov)
-        
-        # Apply mutation
-        for i in range(len(individual)):
-            individual[i] += mutation_vector[i]
-            # Clamp each gene within its bounds
-            if i == 0:  # sigma_2
-                individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
-            elif i == 1:  # t2
-                individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
-            elif i == 2:  # infall_2
-                individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
-        
-        return individual,
-
-
-    def data_driven_gaussian_mutate(self, individual, population, top_fraction=0.3, base_scale=1.0):
-        """
-        Mutate the individual using a data-driven approach.
-        
-        Args:
-          individual: the individual to mutate.
-          population: the current population.
-          top_fraction: fraction of individuals to consider as "successful" (e.g. top 30%).
-          base_scale: a global scaling factor (could be decreased over generations).
-          
-        Returns:
-          A mutated individual.
-        """
-        # Select the top fraction based on fitness values
-        pop_sorted = sorted(population, key=lambda ind: ind.fitness.values[0])
-        n_top = max(1, int(top_fraction * len(population)))
-        top_inds = pop_sorted[:n_top]
-        
-        # Extract gene arrays from the top individuals
-        # Assuming individuals are lists of length 3 (sigma_2, t2, infall_2)
-        top_genes = np.array(top_inds)  # shape (n_top, 3)
-        
-        # Compute per-gene standard deviations
-        std_devs = np.std(top_genes, axis=0)
-        # Prevent zeros in the std deviations (if all best individuals are the same for a gene)
-        std_devs[std_devs == 0] = 1e-6
-        
-        # Optionally, scale these by a factor that decreases over generations
-        # For now, we use base_scale as provided.
-        mutation_scales = base_scale * std_devs
-        
-        # Apply Gaussian mutation per gene
-        for i in range(len(individual)):
-            # Sample a mutation step from N(0, mutation_scales[i])
-            mutation = np.random.normal(0, mutation_scales[i])
-            individual[i] += mutation
+        # Handle continuous parameters with covariance-based mutation
+        if len(continuous_indices) > 1:  # Need at least 2 dimensions for covariance
+            # Extract continuous parameters from top individuals
+            continuous_data = []
+            for ind in top_inds:
+                continuous_data.append([ind[i] for i in continuous_indices])
+            continuous_array = np.array(continuous_data, dtype=float)
             
-            # Clamp within bounds
-            if i == 0:  # sigma_2
-                individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
-            elif i == 1:  # t2
-                individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
-            elif i == 2:  # infall_2
-                individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
-        
-        return individual,
-
-    def custom_gaussian_mutate(self, individual, loss, population, fitnesses, base_range=1.0, shrink_range=False):
-     
-        base_sigma = base_range
-        def calculate_successful_diversity(population, fitnesses, threshold):
-            successful_inds = [ind for ind, fit in zip(population, fitnesses) if fit <= threshold]
-            if not successful_inds:
-                return [1.0 for _ in range(len(population[0]))]
-            genes = list(zip(*successful_inds))
-            return [np.std(gene_values) if len(gene_values) > 1 else 0.0 for gene_values in genes]
-     
-     
-        def calculate_sigma(loss, max_loss, min_loss, gene_diversity, max_diversity, min_diversity, base_sigma, shrink_range=False):
-            if not shrink_range:
-                return base_sigma  # Keep sigma constant if range shrinking is disabled
-
-            # Normalize loss and diversity to [0, 1]
-            loss_norm = (loss - min_loss) / (max_loss - min_loss) if max_loss != min_loss else 1.0
-            diversity_norm = (gene_diversity - min_diversity) / (max_diversity - min_diversity) if max_diversity != min_diversity else 1.0
-
-            # Invert loss_norm so that lower loss leads to smaller sigma
-            loss_factor = 1 - loss_norm
-
-            # Combine factors (you can adjust weights)
-            sigma = base_sigma * (loss_factor + diversity_norm) / 2
-
-            # Ensure sigma is within reasonable bounds
-            sigma = max(sigma, base_sigma * 0.1)  # Minimum sigma
-            sigma = min(sigma, base_sigma * 10)   # Maximum sigma
-
-            return sigma
-
-        # Calculate loss statistics
-        losses = [fit[0] for fit in fitnesses]
-        max_loss = max(losses)
-        min_loss = min(losses)
-
-        # Calculate diversity of successful population
-        if self.threshold == -1:
-            self.threshold = np.median(losses)
-        threshold = self.threshold
-        gene_diversity = calculate_successful_diversity(population, losses, threshold)
-        max_diversity = max(gene_diversity)
-        min_diversity = min(gene_diversity)
-
-        # For each gene in the individual
-        for i in range(len(individual)):
-
-            # Calculate sigma for this gene using 'loss'
-            sigma = calculate_sigma(loss, max_loss, min_loss, gene_diversity[i], max_diversity, min_diversity, base_sigma, self.shrink_range)
-
-            # Apply Gaussian mutation
-            individual[i] += random.gauss(0, sigma)
-
-            # Ensure the mutated gene is within bounds
-            if i == 0:  # sigma_2
-                min_bound = self.sigma_2_min
-                max_bound = self.sigma_2_max
-            elif i == 1:  # t_2
-                min_bound = self.t_2_min
-                max_bound = self.t_2_max
-            elif i == 2:  # infall_2
-                min_bound = self.infall_2_min
-                max_bound = self.infall_2_max
-            individual[i] = min(max(individual[i], min_bound), max_bound)
-        return individual
-
-    def adaptive_gaussian_mutate(self, individual, indpb=0.2):
-        """
-        Mutation that adapts based on generation number and current fitness.
-        
-        As generations progress, mutation scale decreases for fitter individuals.
-        """
-        # Get relative progress through the generations (0 to 1)
-        gen_progress = min(1.0, self.gen / (self.num_generations * 0.8))
-        
-        # Get normalized fitness rank (0 to 1, where 0 is the best individual)
-        fitness_values = [ind.fitness.values[0] for ind in self.current_population 
-                         if ind.fitness.valid]
-        if fitness_values:
-            best_fitness = min(fitness_values)
-            worst_fitness = max(fitness_values)
-            fitness_range = worst_fitness - best_fitness
+            # Compute covariance matrix
+            cov_matrix = np.cov(continuous_array, rowvar=False)
+            cov_matrix += np.eye(cov_matrix.shape[0]) * regularization
+            scaled_cov = base_scale * cov_matrix
             
-            if fitness_range > 0:
-                normalized_fitness = (individual.fitness.values[0] - best_fitness) / fitness_range
-            else:
-                normalized_fitness = 0.5
+            # Sample mutation vector
+            mutation_vector = np.random.multivariate_normal(np.zeros(len(continuous_indices)), scaled_cov)
+            
+            # Apply mutation to continuous parameters
+            for idx, i in enumerate(continuous_indices):
+                individual[i] += mutation_vector[idx]
+                # Clamp within bounds
+                min_bound, max_bound = self.get_param_bounds(i)
+                individual[i] = min(max(individual[i], min_bound), max_bound)
         else:
-            normalized_fitness = 0.5  # Default if no valid fitness values
+            # Fallback for the case with only one continuous parameter
+            for i in continuous_indices:
+                min_bound, max_bound = self.get_param_bounds(i)
+                scale = (max_bound - min_bound) * 0.1
+                individual[i] += random.gauss(0, scale)
+                individual[i] = min(max(individual[i], min_bound), max_bound)
         
-        # Combined adaptive factor affects mutation scale
-        # Fitter individuals and later generations get smaller mutations
-        adapt_factor = (0.3 + 0.7 * normalized_fitness) * (1.0 - 0.8 * gen_progress)
-        
-        # Apply mutation with adaptive scale
-        for i in range(len(individual)):
-            if random.random() < indpb:
-                # Calculate appropriate scale for this parameter
-                if i == 0:  # sigma_2
-                    scale = (self.sigma_2_max - self.sigma_2_min) * 0.2 * adapt_factor
-                elif i == 1:  # t_2
-                    scale = (self.t_2_max - self.t_2_min) * 0.2 * adapt_factor
-                elif i == 2:  # infall_2
-                    scale = (self.infall_2_max - self.infall_2_min) * 0.2 * adapt_factor
+        # Handle categorical parameters with simple mutation
+        for i in categorical_indices:
+            if random.random() < 0.2:  # 20% chance to mutate each categorical parameter
+                param_name = self.index_to_param_map[i]
+                num_categories = len(getattr(self, param_name + '_list'))
                 
-                # Apply Gaussian mutation
-                mutation = random.gauss(0, scale)
-                individual[i] += mutation
-                
-                # Ensure within bounds
-                if i == 0:  # sigma_2
-                    individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
-                elif i == 1:  # t_2
-                    individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
-                elif i == 2:  # infall_2
-                    individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
+                # Select a new random category (different from current)
+                current_value = individual[i]
+                new_value = current_value
+                while new_value == current_value and num_categories > 1:
+                    new_value = random.randint(0, num_categories - 1)
+                individual[i] = new_value
         
         return individual,
 
-    def custom_uniform_mutate(self, individual, loss, population, fitnesses, base_range=1.0, shrink_range=False):
 
 
-        def calculate_successful_diversity(population, fitnesses, threshold):
-            successful_inds = [ind for ind, fit in zip(population, fitnesses) if fit <= threshold]
-            if not successful_inds:
-                return [1.0 for _ in range(len(population[0]))]
-            genes = list(zip(*successful_inds))
-            return [np.std(gene_values) if len(gene_values) > 1 else 0.0 for gene_values in genes]
 
 
-        def calculate_mutation_range(loss, max_loss, min_loss, gene_diversity, max_diversity, min_diversity, base_range, shrink_range=False):
-            if not shrink_range:
-                return base_range  # Keep mutation range constant if range shrinking is disabled
 
-            # Normalize loss and diversity to [0, 1]
-            loss_norm = (loss - min_loss) / (max_loss - min_loss) if max_loss != min_loss else 1.0
-            diversity_norm = (gene_diversity - min_diversity) / (max_diversity - min_diversity) if max_diversity != min_diversity else 1.0
 
-            # Invert loss_norm so that lower loss leads to smaller range
-            loss_factor = 1 - loss_norm
 
-            # Combine factors (you can adjust weights)
-            mutation_range = base_range * (loss_factor + diversity_norm) / 2
 
-            # Ensure mutation_range is within reasonable bounds
-            mutation_range = max(mutation_range, base_range * 0.1)  # Minimum range
-            mutation_range = min(mutation_range, base_range * 10)   # Maximum range
-
-            return mutation_range
-
-        # Calculate loss statistics
-        losses = [fit[0] for fit in fitnesses]
-        max_loss = max(losses)
-        min_loss = min(losses)
-
-        # Calculate diversity of successful population
-        if self.threshold == -1:
-            self.threshold = np.median(losses)
-        threshold = self.threshold
-        gene_diversity = calculate_successful_diversity(population, losses, threshold)
-        max_diversity = max(gene_diversity)
-        min_diversity = min(gene_diversity)
-
-        # For each gene in the individual
-        for i in range(len(individual)):
-
-            # Calculate mutation range for this gene
-            mutation_range = calculate_mutation_range(loss, max_loss, min_loss,gene_diversity[i], max_diversity, min_diversity,base_range, self.shrink_range)
-
-            # Apply uniform mutation within the calculated range
-            mutation_value = random.uniform(-mutation_range, mutation_range)
-            individual[i] += mutation_value
-
-            # Ensure the mutated gene is within bounds
-            if i == 0:  # sigma_2
-                min_bound = self.sigma_2_min
-                max_bound = self.sigma_2_max
-            elif i == 1:  # t_2
-                min_bound = self.t_2_min
-                max_bound = self.t_2_max
-            elif i == 2:  # infall_2
-                min_bound = self.infall_2_min
-                max_bound = self.infall_2_max
-            individual[i] = min(max(individual[i], min_bound), max_bound)
-        return individual
-
-    
-    #def custom_mutate(self, individual, loss, population, fitnesses, base_range=1.0, shrink_range=False):
-    def custom_mutate(self, individual, shrink_range=False):
-        # Custom mutation function
-        for i in range(len(individual)):
-
-            if i == 0:  # sigma_2
-                individual[i] = random.uniform(self.sigma_2_min, self.sigma_2_max)
-            elif i == 1:  # t_2
-                individual[i] = random.uniform(self.t_2_min, self.t_2_max)
-            elif i == 2:  # infall_2
-                individual[i] = random.uniform(self.infall_2_min, self.infall_2_max)
-        return individual,
-        
-            
 
     def GenAl(self, population_size, num_generations, population, toolbox):
         total_eval_time = 0
@@ -1062,21 +873,34 @@ class GalacticEvolutionGA:
         print(f"Generation {generation}: diversity = {diversity:.4f}, " 
               f"mutpb = {self.mutpb:.2f}, cxpb = {self.cxpb:.2f}")
 
-    def evaluate(self, individual):
-        sigma_2, t_2, infall_2 = individual
 
-        # Fixed parameters from the pcard
-        t_1 = self.tmax_2_list[0]
-        infall_1 = self.infall_timescale_1_list[0]
-        comp = self.comp_array[0]
-        imf_val = self.imf_array[0]
-        sfe_val = self.sfe_array[0]
-        imf_upper = self.imf_upper_limits[0]
-        sn1a = self.sn1a_assumptions[0]
-        sy = self.stellar_yield_assumptions[0]
-        mgal = self.mgal_values[0]
-        nb = self.nb_array[0]
-        sn1ar = self.sn1a_rates[0]
+    def evaluate(self, individual):
+        # Extract parameters from the individual
+        # Categorical parameters (indices)
+        comp_idx = int(individual[0])
+        imf_idx = int(individual[1])
+        sn1a_idx = int(individual[2])
+        sy_idx = int(individual[3])
+        sn1ar_idx = int(individual[4])
+        
+        # Continuous parameters
+        sigma_2 = individual[5]
+        t_1 = individual[6]
+        t_2 = individual[7]
+        infall_1 = individual[8]
+        infall_2 = individual[9]
+        sfe_val = individual[10]
+        imf_upper = individual[11]
+        mgal = individual[12]
+        nb = individual[13]
+        
+        # Look up the actual values for categorical parameters
+        comp = self.comp_array[comp_idx]
+        imf_val = self.imf_array[imf_idx]
+        sn1a = self.sn1a_assumptions[sn1a_idx]
+        sy = self.stellar_yield_assumptions[sy_idx]
+        sn1ar = self.sn1a_rates[sn1ar_idx]
+        
         A1 = self.A1
         A2 = self.A2
         sn1a_header = self.sn1a_header
@@ -1102,39 +926,45 @@ class GalacticEvolutionGA:
             'sn1a_rate': sn1ar
         }
 
-
         # Run GCE model and compute MDF
         GCE_model = omega_plus.omega_plus(**kwargs)
         x_data, y_data = GCE_model.inner.plot_mdf(axis_mdf='[Fe/H]', sigma_gauss=0.1, norm=True, return_x_y=True)
         x_data = np.array(x_data)
         y_data = np.array(y_data)
 
-
-        # 3) Evaluate the spline at the same [Fe/H] grid as your data
+        # Evaluate the spline at the same [Fe/H] grid as your data
         cs_MDF = CubicSpline(x_data, y_data)
         fmin, fmax = x_data.min(), x_data.max()
         feh_clamped = np.clip(self.feh, fmin, fmax)
         theory_count_array = cs_MDF(feh_clamped)
 
-        # 4) Compare with your observed distribution
-        # If your observed distribution is also normalized, 
-        # theory_count_array and self.normalized_count are on the same scale now.
+        # Compare with the observed distribution
         ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh = self.calculate_all_metrics(theory_count_array)
 
-        # 5) Use selected loss
+        # Use selected loss
         primary_loss_value = self.selected_loss_function(theory_count_array)
 
-        # 6) Return the result
-        label = f'sigma2: {sigma_2:.3f}, t2: {t_2:.3f}, infall2: {infall_2:.3f}'
+        # Return the result with a detailed label
+        label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
+                 f'sigma2: {sigma_2:.3f}, t1: {t_1:.3f}, t2: {t_2:.3f}, '
+                 f'infall1: {infall_1:.3f}, infall2: {infall_2:.3f}, '
+                 f'sfe: {sfe_val:.5f}, imf_upper: {imf_upper:.1f}, '
+                 f'mgal: {mgal:.2e}, nb: {nb:.2e}')
+                 
+        # Create metrics list for results storage
+        metrics = [comp_idx, imf_idx, sn1a_idx, sy_idx, sn1ar_idx,
+                   sigma_2, t_1, t_2, infall_1, infall_2, 
+                   sfe_val, imf_upper, mgal, nb,
+                   ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh]
+        
         result = {
             'label': label,
             'x_data': x_data,
             'y_data': y_data,
-            'metrics': [sigma_2, t_2, infall_2, ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh],
+            'metrics': metrics,
             'cs_MDF': cs_MDF,
             'model_number': self.model_count
         }
 
         return (primary_loss_value,), result
-
 

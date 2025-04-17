@@ -313,10 +313,10 @@ def update(num):
 
 
 # Create animation
-ani = animation.FuncAnimation(fig, update, frames=num_generations*2, interval=200, blit=False)
+ani = animation.FuncAnimation(fig, update, frames=num_generations*3, interval=200, blit=False)
 # Save as GIF
 gif_path = "GA/loss/walker_evolution_3D.gif"
-ani.save(gif_path, writer="pillow", fps=20)
+ani.save(gif_path, writer="pillow", fps=10)
 
 
 
