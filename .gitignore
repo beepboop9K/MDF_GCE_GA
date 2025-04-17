@@ -1,5 +1,5 @@
 # Ignore data files
-#*.csv
+*.csv
 *.tsv
 *.json
 *.xml

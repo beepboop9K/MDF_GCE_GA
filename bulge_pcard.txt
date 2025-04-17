@@ -65,21 +65,21 @@ shrink_range: 'False'
 # Set to 1e9 to suppress the first infall entirely.
 #
 ############################################################
-sigma_2_list: [1e9]
+sigma_2_list: [1e9, 1.5e9]
 ############################################################
 #
 # Tmax 2 list: Time (in Gyr) after the universe's birth when the second infall occurs.
 # Default for thin disk: 8 Gyr ago (tmax_2 = 5 Gyr).
 #
 ############################################################
-tmax_1_list: [0.1] # for two infall scenario, sweep
+tmax_1_list: [0.1,0.11] # for two infall scenario, sweep
 #
 ## default thick disk assumption is 11 Gyr ago (+/- 3 Gyr) a bunch of [M/H] = -0.5 stuff fell in
 #
 ## default thin disk assumption is 8 Gyr ago (+/- 5 Gyr) long, slow inflow at solar -- Gaia Enceladus Sausage
 #
 
-tmax_2_list: [1,2,5,10]
+tmax_2_list: [1,10]
 
 ############################################################
 #
@@ -92,7 +92,7 @@ infall_timescale_1_list: [0.1] ## fix for single infall model; sweep otherwise
 ## default thick disk assumption: 3 Gyr to fall in, coming in at [Fe/H] -0.5  
 ## default thin disk: 5 Gyr to fall in, coming in at solar composition 
 
-infall_timescale_2_list: [0.5, 1.0, 2.0, 5.0, 10.0]
+infall_timescale_2_list: [0.5, 10.0]
 
 
 
@@ -102,11 +102,11 @@ infall_timescale_2_list: [0.5, 1.0, 2.0, 5.0, 10.0]
 # These files set the metallicity of the infall material.
 #
 ############################################################
-#comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt'] 
+comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt'] 
 #comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt'] 
 #comp_array: ['iniab_output_feh_p000.txt']
 #comp_array: ['iniab_6.0E-03GN93.txt','iniab_FeH-1.5_GS98.txt']
-comp_array: ['iniab_FeH-1.5_GS98.txt']
+#comp_array: ['iniab_FeH-1.5_GS98.txt']
 ############################################################
 #
 # Star formation efficiency (SFE): Fraction of gas converted to stars.
@@ -132,7 +132,7 @@ imf_array: ['kroupa']
 # Default value: 50.
 #
 ############################################################
-imf_upper_limits: [50]#,100]
+imf_upper_limits: [50,100]
 
 
 ############################################################
@@ -141,8 +141,8 @@ imf_upper_limits: [50]#,100]
 # Choose from predefined options in OMEGA.
 #
 ############################################################
-sn1a_assumptions: ['sn1a_Gronow.txt']
-#sn1a_assumptions: ['sn1a_Gronow.txt','sn1a_shen.txt']
+#sn1a_assumptions: ['sn1a_Gronow.txt']
+sn1a_assumptions: ['sn1a_Gronow.txt','sn1a_shen.txt']
 
 
 ############################################################
