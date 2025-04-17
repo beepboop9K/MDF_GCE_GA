@@ -582,35 +582,9 @@ class GalacticEvolutionGA:
         population = toolbox.population(n=population_size)
         return population, toolbox
 
-    def custom_crossover(self, ind1, ind2, alpha=0.5):
-        """
-        Custom crossover function that correctly handles categorical and continuous parameters.
-        """
-        # Categorical parameters are at indices 0-4
-        categorical_indices = [0, 1, 2, 3, 4]  # comp, imf, sn1a, sy, sn1a_rate
-        
-        # Continuous parameters are at indices 5-13
-        continuous_indices = [5, 6, 7, 8, 9, 10, 11, 12, 13]  # sigma_2, t_1, t_2, etc.
-        
-        # Create copies of the parents
-        ind1_copy = ind1[:]
-        ind2_copy = ind2[:]
-        
-        # Handle categorical parameters with random selection
-        for i in categorical_indices:
-            if random.random() < 0.5:
-                # Swap values
-                ind1_copy[i], ind2_copy[i] = ind2_copy[i], ind1_copy[i]
-        
-        # Handle continuous parameters with blending (BLX-alpha)
-        for i in continuous_indices:
-            # Blend the continuous values
-            gamma = (1. + 2. * alpha) * random.random() - alpha
-            ind1_copy[i] = (1. - gamma) * ind1[i] + gamma * ind2[i]
-            ind2_copy[i] = gamma * ind1[i] + (1. - gamma) * ind2[i]
-        
-        # Return the new individuals
-        return ind1_copy, ind2_copy
+
+
+
     def compute_ks_distance(self, theory_count_array):
         """
         1D Kolmogorov–Smirnov distance between the model distribution
@@ -816,34 +790,37 @@ class GalacticEvolutionGA:
             gc.collect()  # clean up
 
     def update_operator_rates(self, population, generation, num_generations):
-        """Dynamically adjust operator rates based on progress and diversity"""
-        # Calculate population diversity
-        gene_array = np.array([ind for ind in population])
-        if len(gene_array) > 1:
-            # Calculate average pairwise distance
-            distances = []
-            for i in range(len(gene_array)):
-                for j in range(i+1, len(gene_array)):
-                    distances.append(np.linalg.norm(gene_array[i] - gene_array[j]))
-            diversity = np.mean(distances) if distances else 0
-        else:
-            diversity = 0
-        
-        # Get current progress through generations
-        progress = generation / num_generations
-        
-        # If diversity is low, increase mutation rate to explore more
-        if diversity < 0.1 * (self.sigma_2_max - self.sigma_2_min):
-            self.mutpb = min(self.mutpb * 1.1, 0.7)  # Increase mutation rate
-            self.cxpb = max(self.cxpb * 0.9, 0.3)    # Decrease crossover rate
-        
-        # If we're in later generations and diversity is still high, favor exploitation
-        elif progress > 0.6 and diversity > 0.3 * (self.sigma_2_max - self.sigma_2_min):
-            self.mutpb = max(self.mutpb * 0.9, 0.1)  # Decrease mutation rate
-            self.cxpb = min(self.cxpb * 1.1, 0.9)    # Increase crossover rate
+        # Calculate success rates
+        if hasattr(self, 'prev_best_fitness') and self.prev_best_fitness is not None:
+            current_best = min(ind.fitness.values[0] for ind in population if ind.fitness.valid)
+            improvement = max(0, self.prev_best_fitness - current_best)
             
-        print(f"Generation {generation}: diversity = {diversity:.4f}, " 
-              f"mutpb = {self.mutpb:.2f}, cxpb = {self.cxpb:.2f}")
+            # Update mutation success rate based on improvement
+            self.mutation_success_rate = 0.9 * self.mutation_success_rate + 0.1 * (1 if improvement > 0 else 0)
+            
+            # Adjust operator rates based on success
+            if self.mutation_success_rate > 0.6:  # Mutations are working well
+                self.mutpb = min(self.mutpb * 1.05, 0.8)
+                self.cxpb = max(self.cxpb * 0.95, 0.2)
+            elif self.mutation_success_rate < 0.2:  # Mutations not working well
+                self.mutpb = max(self.mutpb * 0.95, 0.1)
+                self.cxpb = min(self.cxpb * 1.05, 0.9)
+            
+            # Adapt mutation strengths
+            for i in self.continuous_indices:
+                if improvement > 0:  # If improving, keep current strategy
+                    self.mutation_strengths[i] = self.mutation_strengths[i]
+                else:  # If stagnating, adjust strength
+                    if random.random() < 0.5:
+                        self.mutation_strengths[i] *= 1.2  # Increase exploration
+                    else:
+                        self.mutation_strengths[i] *= 0.8  # Increase exploitation
+                    
+                    # Keep within reasonable bounds
+                    self.mutation_strengths[i] = min(max(self.mutation_strengths[i], 0.2), 5.0)
+        
+        # Store current best for next generation
+        self.prev_best_fitness = min(ind.fitness.values[0] for ind in population if ind.fitness.valid)
 
 
     def get_param_bounds(self, param_index):
@@ -1026,3 +1003,51 @@ class GalacticEvolutionGA:
 
         return (primary_loss_value,), result
 
+    def custom_crossover(self, ind1, ind2):
+        # Copy parents
+        ind1_copy = ind1[:]
+        ind2_copy = ind2[:]
+        
+        # Categorical parameters (indices 0-4)
+        for i in self.categorical_indices:
+            if random.random() < 0.5:
+                ind1_copy[i], ind2_copy[i] = ind2_copy[i], ind1_copy[i]
+        
+        # Continuous parameters with SBX
+        eta = 15  # Distribution index - higher values = more parent-like offspring
+        for i in self.continuous_indices:
+            # Get bounds
+            xl, xu = self.get_param_bounds(i)
+            
+            # SBX crossover
+            if random.random() < 0.9:  # 90% chance of crossover for each parameter
+                if abs(ind1[i] - ind2[i]) > 1e-10:  # Parents are different
+                    if ind1[i] < ind2[i]:
+                        y1, y2 = ind1[i], ind2[i]
+                    else:
+                        y1, y2 = ind2[i], ind1[i]
+                    
+                    # Calculate beta
+                    beta = 1.0 + (2.0 * (y1 - xl) / (y2 - y1))
+                    alpha = 2.0 - beta**(-(eta + 1))
+                    
+                    u = random.random()
+                    if u <= 1.0 / alpha:
+                        beta_q = (u * alpha) ** (1.0 / (eta + 1))
+                    else:
+                        beta_q = (1.0 / (2.0 - u * alpha)) ** (1.0 / (eta + 1))
+                    
+                    # Calculate offspring
+                    c1 = 0.5 * ((y1 + y2) - beta_q * (y2 - y1))
+                    c2 = 0.5 * ((y1 + y2) + beta_q * (y2 - y1))
+                    
+                    # Ensure bounds
+                    c1 = min(max(c1, xl), xu)
+                    c2 = min(max(c2, xl), xu)
+                    
+                    if random.random() < 0.5:
+                        ind1_copy[i], ind2_copy[i] = c1, c2
+                    else:
+                        ind1_copy[i], ind2_copy[i] = c2, c1
+        
+        return ind1_copy, ind2_copy
