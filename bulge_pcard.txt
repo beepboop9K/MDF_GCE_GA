@@ -31,7 +31,7 @@ sn1a_header: 'yield_tables/'
 popsize: 8
 
 #How many generations (/epochs) are performed. 
-generations: 3
+generations: 30
 
 #probability an individual will make babies. 
 crossover_probability: 0.7
