@@ -113,8 +113,7 @@ GalGA = Gal_GA.GalacticEvolutionGA(
 genal_population, genal_toolbox = GalGA.init_GenAl(population_size=popsize)
 
 # Run the GA
-GalGA.GenAl(population_size=popsize, num_generations=generations, 
-            population=genal_population, toolbox=genal_toolbox)
+#GalGA.GenAl(population_size=popsize, num_generations=generations, population=genal_population, toolbox=genal_toolbox)
 
 # Define column names based on the actual structure of GalGA.results
 # Note: These must match exactly what's being returned in the 'metrics' list in GalGA.evaluate
@@ -310,24 +309,35 @@ def update(num):
     ax.view_init(elev=20, azim=num)  # Rotate by 1 degree per frame
 
     for i, (walker_id, history) in enumerate(GalGA.walker_history.items()):
-        if not history or num >= len(history):
+        if not history:
             continue
         history = np.array(history)
-        generations = np.arange(len(history[:num+1]))
+        generations = np.arange(len(history))
         
         # Use correct indices for t_2 (7) and infall_2 (9)
-        ax.plot(generations, history[:num+1, 7], history[:num+1, 9], color=colors[i], alpha=0.7, label=f"Walker {i}")
+        if num < num_generations:
+            # During first rotation, show progressive evolution
+            plot_up_to = min(num+1, len(history))
+            ax.plot(generations[:plot_up_to], history[:plot_up_to, 7], history[:plot_up_to, 9], 
+                    color=colors[i], alpha=0.7, label=f"Walker {i}")
+        else:
+            # Second rotation shows complete paths
+            ax.plot(generations, history[:, 7], history[:, 9], 
+                    color=colors[i], alpha=0.7, label=f"Walker {i}")
 
     ax.legend(loc="upper right", fontsize="small")
 
 # Import animation module
 import matplotlib.animation as animation
 
-# Create animation
-ani = animation.FuncAnimation(fig, update, frames=min(num_generations*3, 60), interval=400, blit=False)
+# Create animation with two full rotations:
+# First rotation (360 degrees) shows progressive evolution
+# Second rotation (360 degrees) shows the complete paths
+total_frames = 360 * 2  # Two full rotations at 1 degree per frame
+ani = animation.FuncAnimation(fig, update, frames=total_frames, interval=100, blit=False)
 
-# Save as GIF
+# Save as GIF with lower frame rate
 gif_path = "GA/loss/walker_evolution_3D.gif"
-ani.save(gif_path, writer="pillow", fps=10)
+ani.save(gif_path, writer="pillow", fps=6)  # Lower fps for slower rotation
 
 print("All plotting complete. Check the GA directory for results.")
