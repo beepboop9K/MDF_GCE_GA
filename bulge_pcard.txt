@@ -179,7 +179,7 @@ nb_array: [1e-3]
 # Available options include: 'power_law', 'gauss', 'exp', 'maoz'.
 #
 ############################################################
-sn1a_rates: ['power_law','gauss','exp', 'moaz']
+sn1a_rates: ['power_law','gauss','exp']
 
 
 ############################################################
