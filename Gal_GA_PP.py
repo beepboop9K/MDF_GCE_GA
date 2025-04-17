@@ -570,7 +570,7 @@ class GalacticEvolutionGA:
 
         # Register genetic operations
         toolbox.register("mate", self.custom_crossover, alpha=0.5)
-        toolbox.register("mutate", self.expanded_mutate)
+        toolbox.register("mutate", self.covariance_aware_mutate)
         toolbox.register("select", self.selDiversityTournament, tournsize=self.tournament_size, lambda_diversity=self.lambda_diversity)
 
         # Create the initial population
