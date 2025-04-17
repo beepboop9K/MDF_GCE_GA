@@ -599,6 +599,32 @@ class GalacticEvolutionGA:
         return ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh
 
 
+    def diversity_tournament_selection(self, individuals, k, tournsize=3):
+        """Tournament selection that also rewards diversity"""
+        selected = []
+        for i in range(k):
+            # Regular tournament selection
+            aspirants = random.sample(individuals, tournsize)
+            aspirants.sort(key=lambda ind: ind.fitness.values[0])
+            winner = aspirants[0]  # Best fitness
+            
+            # If we've already selected some individuals, consider diversity
+            if selected and random.random() < 0.3:  # 30% chance to prioritize diversity
+                # Calculate distance to already selected individuals
+                distances = []
+                for ind in aspirants:
+                    min_dist = min(np.linalg.norm(np.array(ind) - np.array(sel)) 
+                                  for sel in selected)
+                    distances.append(min_dist)
+                
+                # Find most diverse individual among the tournament participants
+                diverse_idx = distances.index(max(distances))
+                winner = aspirants[diverse_idx]
+            
+            selected.append(winner)
+        
+        return selected
+
     def covariance_aware_mutate(self, individual, population, top_fraction=0.3, base_scale=1.0, regularization=1e-6):
         """
         Mutate the individual using a covariance-aware approach.
@@ -760,7 +786,58 @@ class GalacticEvolutionGA:
             individual[i] = min(max(individual[i], min_bound), max_bound)
         return individual
 
-
+    def adaptive_gaussian_mutate(self, individual, indpb=0.2):
+        """
+        Mutation that adapts based on generation number and current fitness.
+        
+        As generations progress, mutation scale decreases for fitter individuals.
+        """
+        # Get relative progress through the generations (0 to 1)
+        gen_progress = min(1.0, self.gen / (self.num_generations * 0.8))
+        
+        # Get normalized fitness rank (0 to 1, where 0 is the best individual)
+        fitness_values = [ind.fitness.values[0] for ind in self.current_population 
+                         if ind.fitness.valid]
+        if fitness_values:
+            best_fitness = min(fitness_values)
+            worst_fitness = max(fitness_values)
+            fitness_range = worst_fitness - best_fitness
+            
+            if fitness_range > 0:
+                normalized_fitness = (individual.fitness.values[0] - best_fitness) / fitness_range
+            else:
+                normalized_fitness = 0.5
+        else:
+            normalized_fitness = 0.5  # Default if no valid fitness values
+        
+        # Combined adaptive factor affects mutation scale
+        # Fitter individuals and later generations get smaller mutations
+        adapt_factor = (0.3 + 0.7 * normalized_fitness) * (1.0 - 0.8 * gen_progress)
+        
+        # Apply mutation with adaptive scale
+        for i in range(len(individual)):
+            if random.random() < indpb:
+                # Calculate appropriate scale for this parameter
+                if i == 0:  # sigma_2
+                    scale = (self.sigma_2_max - self.sigma_2_min) * 0.2 * adapt_factor
+                elif i == 1:  # t_2
+                    scale = (self.t_2_max - self.t_2_min) * 0.2 * adapt_factor
+                elif i == 2:  # infall_2
+                    scale = (self.infall_2_max - self.infall_2_min) * 0.2 * adapt_factor
+                
+                # Apply Gaussian mutation
+                mutation = random.gauss(0, scale)
+                individual[i] += mutation
+                
+                # Ensure within bounds
+                if i == 0:  # sigma_2
+                    individual[i] = min(max(individual[i], self.sigma_2_min), self.sigma_2_max)
+                elif i == 1:  # t_2
+                    individual[i] = min(max(individual[i], self.t_2_min), self.t_2_max)
+                elif i == 2:  # infall_2
+                    individual[i] = min(max(individual[i], self.infall_2_min), self.infall_2_max)
+        
+        return individual,
 
     def custom_uniform_mutate(self, individual, loss, population, fitnesses, base_range=1.0, shrink_range=False):
 
@@ -843,7 +920,8 @@ class GalacticEvolutionGA:
                 individual[i] = random.uniform(self.infall_2_min, self.infall_2_max)
         return individual,
         
-        
+            
+
     def GenAl(self, population_size, num_generations, population, toolbox):
         total_eval_time = 0
         total_eval_steps = 0
@@ -955,54 +1033,34 @@ class GalacticEvolutionGA:
             gc.collect()  # clean up
 
     def update_operator_rates(self, population, generation, num_generations):
-        """
-        Dynamically adjust mutation (mutpb) and crossover (cxpb) rates based on population diversity.
-        """
-        # Compute average fitness of valid individuals
-        fitnesses = [ind.fitness.values[0] for ind in population if ind.fitness.valid]
-        if not fitnesses:
-            return  # No valid fitnesses yet
-        
-        avg_fitness = np.mean(fitnesses)
-
-        # Compute diversity as the average pairwise Euclidean distance in gene space
+        """Dynamically adjust operator rates based on progress and diversity"""
+        # Calculate population diversity
         gene_array = np.array([ind for ind in population])
-        if len(gene_array) < 2:
-            diversity = 0
-        else:
+        if len(gene_array) > 1:
+            # Calculate average pairwise distance
             distances = []
             for i in range(len(gene_array)):
                 for j in range(i+1, len(gene_array)):
                     distances.append(np.linalg.norm(gene_array[i] - gene_array[j]))
-            diversity = np.mean(distances)
+            diversity = np.mean(distances) if distances else 0
+        else:
+            diversity = 0
         
-        # Debug print: see how the diversity evolves
-        print(f"Generation {generation}: avg_fitness = {avg_fitness:.4f}, diversity = {diversity:.4f}")
-
-        # Define thresholds (tweak these values based on your problem)
-        diversity_threshold_low = 0.1  # if diversity is too low, we’re likely stuck in a local minimum
-        diversity_threshold_high = 0.5  # if diversity is high, you might want more crossover
-
-        # Dynamically adjust mutation rate:
-        if diversity < diversity_threshold_low:
-            # Stuck? Crank up mutation to shake shit up.
-            self.mutpb = min(self.mutpb * 1.2, 1.0)
-            print(f"Low diversity detected. Increasing mutation rate to {self.mutpb:.2f}")
-        elif diversity > diversity_threshold_high:
-            # Too chaotic? Lower mutation to refine the search.
-            self.mutpb = max(self.mutpb * 0.8, 0.05)
-            print(f"High diversity detected. Decreasing mutation rate to {self.mutpb:.2f}")
-
-        # Similarly adjust crossover rate:
-        if diversity < diversity_threshold_low:
-            # Increase mutation may be needed, so let crossover be less aggressive.
-            self.cxpb = max(self.cxpb * 0.8, 0.05)
-            print(f"Low diversity detected. Decreasing crossover rate to {self.cxpb:.2f}")
-        elif diversity > diversity_threshold_high:
-            # If diversity is high, you can be more aggressive with crossover to combine good traits.
-            self.cxpb = min(self.cxpb * 1.2, 1.0)
-            print(f"High diversity detected. Increasing crossover rate to {self.cxpb:.2f}")
-
+        # Get current progress through generations
+        progress = generation / num_generations
+        
+        # If diversity is low, increase mutation rate to explore more
+        if diversity < 0.1 * (self.sigma_2_max - self.sigma_2_min):
+            self.mutpb = min(self.mutpb * 1.1, 0.7)  # Increase mutation rate
+            self.cxpb = max(self.cxpb * 0.9, 0.3)    # Decrease crossover rate
+        
+        # If we're in later generations and diversity is still high, favor exploitation
+        elif progress > 0.6 and diversity > 0.3 * (self.sigma_2_max - self.sigma_2_min):
+            self.mutpb = max(self.mutpb * 0.9, 0.1)  # Decrease mutation rate
+            self.cxpb = min(self.cxpb * 1.1, 0.9)    # Increase crossover rate
+            
+        print(f"Generation {generation}: diversity = {diversity:.4f}, " 
+              f"mutpb = {self.mutpb:.2f}, cxpb = {self.cxpb:.2f}")
 
     def evaluate(self, individual):
         sigma_2, t_2, infall_2 = individual
