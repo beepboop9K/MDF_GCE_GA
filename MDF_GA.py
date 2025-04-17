@@ -123,7 +123,13 @@ GalGA.GenAl(population_size=popsize, num_generations=generations,
 
 
 
-col_names = ['sigma_2', 't2', 'infall2', 'ks', 'Ensemble', 'WRMSE', 'MAE', 'MAPE', 'Huber', 'Cosine', 'log_cosh']
+# Updated column names list to match your expanded metrics
+col_names = [
+    'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
+    'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2', 
+    'sfe', 'imf_upper', 'mgal', 'nb',
+    'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber', 'cosine', 'log_cosh'
+]
 results_df = pd.DataFrame(GalGA.results, columns=col_names)
 
 # Use the chosen loss metric (e.g., 'ks') to define a loss column.
@@ -146,7 +152,7 @@ print("Best model from results dataframe:\n", best_model)
 plt.figure(figsize=(18, 12))
 
 # Convert best model parameters to a NumPy array for comparison.
-best_params = np.array(best_model[['sigma_2', 't2', 'infall2']])
+best_params = np.array(best_model[['sigma_2', 't_2', 'infall_2']])
 
 # Loop through each stored model result to plot its MDF curve.
 for i in range(len(GalGA.mdf_data)):
