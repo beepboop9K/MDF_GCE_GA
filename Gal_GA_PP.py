@@ -576,7 +576,6 @@ class GalacticEvolutionGA:
         
         toolbox.register("mutate", mutate_with_population)
 
-        self.tournament_size = self.tournament_size + int(gen / (num_generations/5))
         toolbox.register("select", self.selDiversityTournament, tournsize=self.tournament_size, lambda_diversity=self.lambda_diversity)
 
         # Create the initial population
@@ -672,11 +671,19 @@ class GalacticEvolutionGA:
 
 
     def diversity_tournament_selection(self, individuals, k, tournsize=3):
-        """Tournament selection that also rewards diversity"""
+        """Tournament selection that also rewards diversity with increasing tournament size"""
+        # Calculate current tournament size based on generation progress
+        if hasattr(self, 'gen') and hasattr(self, 'num_generations'):
+            progress = min(1.0, self.gen / self.num_generations)
+            max_tournsize = min(len(individuals) // 2, tournsize * 3)  # Cap at half population
+            current_tournsize = max(tournsize, int(tournsize + progress * (max_tournsize - tournsize)))
+        else:
+            current_tournsize = tournsize
+        
         selected = []
         for i in range(k):
-            # Regular tournament selection
-            aspirants = random.sample(individuals, tournsize)
+            # Regular tournament selection with current size
+            aspirants = random.sample(individuals, min(current_tournsize, len(individuals)))
             aspirants.sort(key=lambda ind: ind.fitness.values[0])
             winner = aspirants[0]  # Best fitness
             
@@ -695,9 +702,10 @@ class GalacticEvolutionGA:
             
             selected.append(winner)
         
+        if hasattr(self, 'gen'):
+            print(f"Generation {self.gen}: Using tournament size {current_tournsize}")
+            
         return selected
-
-
 
 
 
