@@ -576,6 +576,7 @@ class GalacticEvolutionGA:
         
         toolbox.register("mutate", mutate_with_population)
 
+        self.tournament_size = self.tournament_size + int(gen / (num_generations/5))
         toolbox.register("select", self.selDiversityTournament, tournsize=self.tournament_size, lambda_diversity=self.lambda_diversity)
 
         # Create the initial population
