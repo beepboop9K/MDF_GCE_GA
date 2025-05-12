@@ -16,9 +16,9 @@
 #*.dat
 
 # Ignore images and binary data
-*.png
-*.jpg
-*.jpeg
+#*.png
+#*.jpg
+#*.jpeg
 *.gif
 *.bmp
 *.tiff
