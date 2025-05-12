@@ -76,311 +76,6 @@ def print_population(GA, population, generation):
 
 
 
-def plot_mutation_info_3D(GA, population, fitnesses, base_sigma=1.0, mutation_type='gaussian'):
-    #print('Starting plot...')
-
-    # Calculate losses
-    losses = [fit[0] for fit in fitnesses]
-    max_loss = max(losses)
-    min_loss = min(losses)
-
-    # Update global min and max loss
-    if GA.global_min_loss is None or min_loss < GA.global_min_loss:
-        GA.global_min_loss = min_loss
-    if GA.global_max_loss is None or max_loss > GA.global_max_loss:
-        GA.global_max_loss = max_loss
-
-    threshold = np.median(losses)
-
-    # Identify successful and unsuccessful individuals
-    successful_inds = []
-    unsuccessful_inds = []
-    for ind, fit in zip(population, fitnesses):
-        if fit[0] <= threshold:
-            successful_inds.append((ind, fit[0]))
-        else:
-            unsuccessful_inds.append((ind, fit[0]))
-
-    # Number of genes
-    gene_names = ['sigma_2', 't_2', 'infall_2']
-    num_genes = len(gene_names)
-
-    # Collect data for accumulation
-    # Successful individuals
-    gene_values_successful = []
-    losses_successful = []
-    for ind, loss in successful_inds:
-        genes = ind[:num_genes]
-        gene_values_successful.append(genes)
-        losses_successful.append(loss)
-    GA.all_gene_values_successful.extend(gene_values_successful)
-    GA.all_losses_successful.extend(losses_successful)
-
-    # Unsuccessful individuals
-    gene_values_unsuccessful = []
-    losses_unsuccessful = []
-    for ind, loss in unsuccessful_inds:
-        genes = ind[:num_genes]
-        gene_values_unsuccessful.append(genes)
-        losses_unsuccessful.append(loss)
-    GA.all_gene_values_unsuccessful.extend(gene_values_unsuccessful)
-    GA.all_losses_unsuccessful.extend(losses_unsuccessful)
-
-    # Store gene bounds
-    current_gene_bounds = {
-        'xmin': GA.sigma_2_min,
-        'xmax': GA.sigma_2_max,
-        'ymin': GA.t_2_min,
-        'ymax': GA.t_2_max,
-        'zmin': GA.infall_2_min,
-        'zmax': GA.infall_2_max
-    }
-    GA.gene_bounds.append(current_gene_bounds)
-
-    # At the end of all generations, plot the accumulated data
-    if GA.gen + 1 == GA.num_generations:
-        # Prepare the colormap for losses
-        all_losses = GA.all_losses_successful + GA.all_losses_unsuccessful
-        min_loss = GA.global_min_loss
-        max_loss = GA.global_max_loss
-        loss_range = max_loss - min_loss if max_loss != min_loss else 1.0
-
-        # Normalize losses
-        losses_successful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_successful]
-        losses_unsuccessful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_unsuccessful]
-
-        # Create colormap (darker color for lower loss)
-        succmap = cm.get_cmap('YlGn')  # Reverse Greys for darker color at lower values
-        unsuccmap = cm.get_cmap('Reds_r')  # Reverse Greys for darker color at lower values
-        
-        colors_successful = [succmap(loss_norm) for loss_norm in losses_successful_norm]
-        colors_unsuccessful = [unsuccmap(loss_norm) for loss_norm in losses_unsuccessful_norm]
-
-
-        # Prepare the colormap for bounding boxes
-        num_generations = GA.num_generations
-        bbox_cmap = cm.get_cmap('Greys')
-        colors_bounding_boxes = [bbox_cmap(i / (num_generations - 1)) for i in range(num_generations)]
-
-        # Create a 3D scatter plot
-        fig = plt.figure(figsize=(12, 9))
-        ax = fig.add_subplot(111, projection='3d')
-
-        # Plot successful individuals
-        if len(GA.all_gene_values_successful) > 0:
-            gene_values_successful = np.array(GA.all_gene_values_successful)
-            ax.scatter(
-                gene_values_successful[:, 0],
-                gene_values_successful[:, 1],
-                gene_values_successful[:, 2],
-                color=colors_successful,
-                label='Successful',
-                alpha=0.6,
-                marker='o'
-            )
-
-        # Plot unsuccessful individuals
-        if len(GA.all_gene_values_unsuccessful) > 0:
-            gene_values_unsuccessful = np.array(GA.all_gene_values_unsuccessful)
-            ax.scatter(
-                gene_values_unsuccessful[:, 0],
-                gene_values_unsuccessful[:, 1],
-                gene_values_unsuccessful[:, 2],
-                color=colors_unsuccessful,
-                label='Unsuccessful',
-                alpha=0.6,
-                marker='^'
-            )
-
-        # Define the edges of the bounding box
-        edges = [
-            [0, 1], [0, 2], [0, 4],
-            [1, 3], [1, 5],
-            [2, 3], [2, 6],
-            [3, 7],
-            [4, 5], [4, 6],
-            [5, 7],
-            [6, 7]
-        ]
-
-        # Plot the bounding boxes
-        for i, gene_bound in enumerate(GA.gene_bounds):
-            color = colors_bounding_boxes[i]
-            # Extract bounds
-            xmin = gene_bound['xmin']
-            xmax = gene_bound['xmax']
-            ymin = gene_bound['ymin']
-            ymax = gene_bound['ymax']
-            zmin = gene_bound['zmin']
-            zmax = gene_bound['zmax']
-
-            # Define the corners of the bounding box
-            corners = np.array([
-                [xmin, ymin, zmin],
-                [xmin, ymin, zmax],
-                [xmin, ymax, zmin],
-                [xmin, ymax, zmax],
-                [xmax, ymin, zmin],
-                [xmax, ymin, zmax],
-                [xmax, ymax, zmin],
-                [xmax, ymax, zmax]
-            ])
-
-            # Plot the edges of the bounding box
-            for edge in edges:
-                x = [corners[edge[0], 0], corners[edge[1], 0]]
-                y = [corners[edge[0], 1], corners[edge[1], 1]]
-                z = [corners[edge[0], 2], corners[edge[1], 2]]
-                ax.plot(x, y, z, color=color, linestyle='--', alpha=0.5)
-
-        # Customize plot
-        ax.set_title("3D Scatter Plot of Individuals with Gene Bounds")
-        ax.set_xlabel(gene_names[0])
-        ax.set_ylabel(gene_names[1])
-        ax.set_zlabel(gene_names[2])
-        ax.legend()
-
-        # Adjust the viewing angle for better visualization
-        ax.view_init(elev=20., azim=-35)
-
-        plt.tight_layout()
-        plt.savefig('GA/MDF_individuals_3D.png', bbox_inches='tight')
-        #plt.show()
-        print('...plot made!')
-
-
-
-def plot_mutation_info_2d(GA, population, fitnesses, base_sigma=1.0, mutation_type='gaussian'):
-    # Calculate losses
-    losses = [fit[0] for fit in fitnesses]
-    max_loss = max(losses)
-    min_loss = min(losses)
-
-    # Update global min and max loss
-    if GA.global_min_loss is None or min_loss < GA.global_min_loss:
-        GA.global_min_loss = min_loss
-    if GA.global_max_loss is None or max_loss > GA.global_max_loss:
-        GA.global_max_loss = max_loss
-
-    threshold = np.median(losses)
-
-    # Identify successful and unsuccessful individuals
-    successful_inds = []
-    unsuccessful_inds = []
-    for ind, fit in zip(population, fitnesses):
-        if fit[0] <= threshold:
-            successful_inds.append((ind, fit[0]))
-        else:
-            unsuccessful_inds.append((ind, fit[0]))
-
-    # Number of genes (excluding sigma)
-    gene_names = ['t_2', 'infall_2']
-    num_genes = len(gene_names)
-
-    # Collect data for accumulation
-    # Successful individuals
-    gene_values_successful = []
-    losses_successful = []
-    for ind, loss in successful_inds:
-        genes = ind[1:num_genes+1]  # Only take `t_2` and `infall_2`
-        gene_values_successful.append(genes)
-        losses_successful.append(loss)
-    GA.all_gene_values_successful.extend(gene_values_successful)
-    GA.all_losses_successful.extend(losses_successful)
-
-    # Unsuccessful individuals
-    gene_values_unsuccessful = []
-    losses_unsuccessful = []
-    for ind, loss in unsuccessful_inds:
-        genes = ind[1:num_genes+1]  # Only take `t_2` and `infall_2`
-        gene_values_unsuccessful.append(genes)
-        losses_unsuccessful.append(loss)
-    GA.all_gene_values_unsuccessful.extend(gene_values_unsuccessful)
-    GA.all_losses_unsuccessful.extend(losses_unsuccessful)
-
-    # Store gene bounds
-    current_gene_bounds = {
-        'xmin': GA.t_2_min,
-        'xmax': GA.t_2_max,
-        'ymin': GA.infall_2_min,
-        'ymax': GA.infall_2_max
-    }
-    GA.gene_bounds.append(current_gene_bounds)
-
-    # At the end of all generations, plot the accumulated data
-    if GA.gen + 1 == GA.num_generations:
-        # Prepare the colormap for losses
-        all_losses = GA.all_losses_successful + GA.all_losses_unsuccessful
-        min_loss = GA.global_min_loss
-        max_loss = GA.global_max_loss
-        loss_range = max_loss - min_loss if max_loss != min_loss else 1.0
-
-        # Normalize losses
-        losses_successful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_successful]
-        losses_unsuccessful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_unsuccessful]
-
-        # Create colormaps
-        succmap = cm.get_cmap('YlGn')
-        unsuccmap = cm.get_cmap('Reds_r')
-
-        colors_successful = [succmap(loss_norm) for loss_norm in losses_successful_norm]
-        colors_unsuccessful = [unsuccmap(loss_norm) for loss_norm in losses_unsuccessful_norm]
-
-        # Prepare the colormap for bounding boxes
-        num_generations = GA.num_generations
-        bbox_cmap = cm.get_cmap('Greys')
-        colors_bounding_boxes = [bbox_cmap(i / (num_generations - 1)) for i in range(num_generations)]
-
-        # Create a 2D scatter plot
-        fig, ax = plt.subplots(figsize=(10, 8))
-
-        # Plot successful individuals
-        if len(GA.all_gene_values_successful) > 0:
-            gene_values_successful = np.array(GA.all_gene_values_successful)
-            ax.scatter(
-                gene_values_successful[:, 0],  # t_2
-                gene_values_successful[:, 1],  # infall_2
-                color=colors_successful,
-                label='Successful',
-                alpha=0.6,
-                marker='o'
-            )
-
-        # Plot unsuccessful individuals
-        if len(GA.all_gene_values_unsuccessful) > 0:
-            gene_values_unsuccessful = np.array(GA.all_gene_values_unsuccessful)
-            ax.scatter(
-                gene_values_unsuccessful[:, 0],  # t_2
-                gene_values_unsuccessful[:, 1],  # infall_2
-                color=colors_unsuccessful,
-                label='Unsuccessful',
-                alpha=0.6,
-                marker='^'
-            )
-
-        # Plot the bounding boxes
-        for i, gene_bound in enumerate(GA.gene_bounds):
-            color = colors_bounding_boxes[i]
-            xmin, xmax = gene_bound['xmin'], gene_bound['xmax']
-            ymin, ymax = gene_bound['ymin'], gene_bound['ymax']
-
-            # Plot the bounding box as a rectangle
-            ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
-                                       edgecolor=color, fill=False, linestyle='--', alpha=0.5))
-
-        # Customize plot
-        ax.set_title("2D Scatter Plot of Individuals with Gene Bounds")
-        ax.set_xlabel(gene_names[0])
-        ax.set_ylabel(gene_names[1])
-        ax.legend()
-        plt.tight_layout()
-        plt.savefig('GA/MDF_individuals_2D.png', bbox_inches='tight')
-        print('...2D plot made!')
-
-
-
-
-
 
 
 class GalacticEvolutionGA:
@@ -571,8 +266,20 @@ class GalacticEvolutionGA:
         # Register genetic operations
         toolbox.register("mate", self.custom_crossover, alpha=0.5)
 
-        def mutate_with_population(individual):
-            return self.covariance_aware_mutate(individual, population)
+        # Define different mutation functions based on fancy_mutation parameter
+        if self.fancy_mutation.lower() == 'uniform':
+            def mutate_with_population(individual):
+                return self.uniform_mutate(individual)
+            
+        elif self.fancy_mutation.lower() == 'gaussian':
+            def mutate_with_population(individual):
+                return self.gaussian_mutate(individual)
+                
+        else:  # Default to covariance-aware mutation
+            def mutate_with_population(individual):
+                return self.covariance_aware_mutate(individual, population)
+        
+        toolbox.register("mutate", mutate_with_population)
         
         toolbox.register("mutate", mutate_with_population)
 
@@ -611,6 +318,8 @@ class GalacticEvolutionGA:
         
         # Return the new individuals
         return ind1_copy, ind2_copy
+
+
     def compute_ks_distance(self, theory_count_array):
         """
         1D Kolmogorov–Smirnov distance between the model distribution
@@ -624,6 +333,8 @@ class GalacticEvolutionGA:
         data_cdf /= data_cdf[-1]
 
         return np.max(np.abs(model_cdf - data_cdf))
+
+
 
     def compute_ensemble_metric(self, theory_count_array):
         """
@@ -855,6 +566,12 @@ class GalacticEvolutionGA:
               f"mutpb = {self.mutpb:.2f}, cxpb = {self.cxpb:.2f}")
 
 
+
+
+
+
+
+
     def get_param_bounds(self, param_index):
         """Get min and max bounds for a parameter by its index"""
         if param_index == 5:  # sigma_2
@@ -937,6 +654,48 @@ class GalacticEvolutionGA:
                     individual[i] = new_value
             
             return individual,
+
+    def uniform_mutate(self, individual, indpb=0.2):
+        """
+        Uniform mutation that replaces values with uniform random values 
+        within parameter bounds.
+        """
+        for i in range(len(individual)):
+            if random.random() < indpb:
+                # Handle categorical parameters
+                if i in self.categorical_indices:
+                    param_name = self.index_to_param_map[i]
+                    num_categories = len(getattr(self, param_name))
+                    individual[i] = random.randint(0, num_categories - 1)
+                # Handle continuous parameters
+                else:
+                    min_bound, max_bound = self.get_param_bounds(i)
+                    individual[i] = random.uniform(min_bound, max_bound)
+        
+        return individual,
+
+    def gaussian_mutate(self, individual, indpb=0.2, sigma_scale=0.1):
+        """
+        Gaussian mutation that perturbs values using a normal distribution.
+        Sigma is scaled relative to the parameter range.
+        """
+        for i in range(len(individual)):
+            if random.random() < indpb:
+                # Handle categorical parameters
+                if i in self.categorical_indices:
+                    param_name = self.index_to_param_map[i]
+                    num_categories = len(getattr(self, param_name))
+                    individual[i] = random.randint(0, num_categories - 1)
+                # Handle continuous parameters
+                else:
+                    min_bound, max_bound = self.get_param_bounds(i)
+                    range_size = max_bound - min_bound
+                    sigma = range_size * sigma_scale
+                    individual[i] += random.gauss(0, sigma)
+                    # Clamp to bounds
+                    individual[i] = min(max(individual[i], min_bound), max_bound)
+        
+        return individual,
 
 
 

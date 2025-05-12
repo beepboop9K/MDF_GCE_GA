@@ -203,6 +203,458 @@ def extract_metrics(results_file):
     
     return sigma_2_vals, t_2_vals, infall_2_vals, metrics_dict, df
 
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import pandas as pd
+from scipy.interpolate import UnivariateSpline
+
+def plot_walker_loss_history(walker_history, results_csv='GA/simulation_results.csv', loss_metric='wrmse'):
+    """
+    Plot the loss values for each walker over generations.
+    
+    Parameters:
+    -----------
+    walker_history : dict
+        Dictionary mapping walker IDs to their parameter history
+    results_csv : str
+        Path to the CSV file containing all evaluation results
+    loss_metric : str
+        Which loss metric to plot ('wrmse', 'mae', 'mape', etc.)
+    """
+    # Load results containing all evaluations
+    results_df = pd.read_csv(results_csv)
+    
+    # Define column mapping based on your results structure
+    loss_metrics = {
+        'ks': 14,
+        'ensemble': 15, 
+        'wrmse': 16, 
+        'mae': 17, 
+        'mape': 18, 
+        'huber': 19, 
+        'cosine': 20, 
+        'log_cosh': 21
+    }
+    
+    # Make sure the loss metric exists in our mapping
+    if loss_metric not in loss_metrics:
+        print(f"Warning: Loss metric '{loss_metric}' not found. Using 'wrmse' instead.")
+        loss_metric = 'wrmse'
+    
+    # Get the column index for the selected loss metric
+    loss_column = loss_metrics[loss_metric]
+    
+    # Create figure for plotting
+    plt.figure(figsize=(12, 8))
+    
+    # For each walker, extract parameters at each generation and match to results
+    for walker_id, history in walker_history.items():
+        if not history:  # Skip empty histories
+            continue
+        
+        # Convert to numpy array for easier manipulation
+        history_array = np.array(history)
+        num_generations = len(history_array)
+        
+        # Initialize array to store loss values
+        loss_values = np.full(num_generations, np.nan)
+        
+        # For each generation, find matching result from results_df
+        for gen_idx in range(num_generations):
+            params = history_array[gen_idx]
+            
+            # Extract key parameters to match (using continuous params like sigma_2, t_2, infall_2)
+            sigma_2 = params[5]  # Assuming this is the index for sigma_2
+            t_2 = params[7]      # Assuming this is the index for t_2
+            infall_2 = params[9] # Assuming this is the index for infall_2
+            
+            # Find the closest match in results_df
+            matches = results_df[
+                (abs(results_df['sigma_2'] - sigma_2) < 1e-5) &
+                (abs(results_df['t_2'] - t_2) < 1e-5) &
+                (abs(results_df['infall_2'] - infall_2) < 1e-5)
+            ]
+            
+            if not matches.empty:
+                # Use the first match's loss value
+                loss_values[gen_idx] = matches.iloc[0][loss_metric]
+        
+        # Plot the loss history for this walker
+        generations = np.arange(num_generations)
+        valid_indices = ~np.isnan(loss_values)
+        
+        if np.any(valid_indices):
+            # If we have enough valid points, use a spline to smooth the curve
+            if np.sum(valid_indices) > 3:
+                valid_gens = generations[valid_indices]
+                valid_loss = loss_values[valid_indices]
+                
+                # Create a smooth curve through the valid points
+                spl = UnivariateSpline(valid_gens, valid_loss, k=min(3, len(valid_loss)-1))
+                smooth_x = np.linspace(valid_gens.min(), valid_gens.max(), 100)
+                plt.plot(smooth_x, spl(smooth_x), alpha=0.7, linewidth=1)
+                
+                # Also plot the actual points
+                plt.scatter(valid_gens, valid_loss, s=20, alpha=0.6, 
+                           label=f"Walker {walker_id}" if walker_id < 5 else "")
+            else:
+                # Just connect the dots if too few points
+                plt.plot(generations[valid_indices], loss_values[valid_indices], 
+                        marker='o', label=f"Walker {walker_id}" if walker_id < 5 else "")
+    
+    # Add plot details
+    plt.title(f"{loss_metric.upper()} Loss Over Generations")
+    plt.xlabel("Generation")
+    plt.ylabel(f"{loss_metric.upper()} Loss")
+    plt.grid(True, alpha=0.3)
+    
+    # Only show legend for first few walkers to avoid clutter
+    plt.legend(loc='upper right', fontsize='small')
+    
+    # Add annotations about convergence
+    min_losses = []
+    for walker_id, history in walker_history.items():
+        if not history:
+            continue
+        history_array = np.array(history)
+        loss_values = np.full(len(history_array), np.nan)
+        # (same matching logic as above)
+        # ...
+        valid_loss = loss_values[~np.isnan(loss_values)]
+        if len(valid_loss) > 0:
+            min_losses.append(np.min(valid_loss))
+    
+    if min_losses:
+        plt.annotate(f"Best overall loss: {min(min_losses):.4f}", 
+                    xy=(0.02, 0.02), xycoords='axes fraction', 
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+    
+    plt.tight_layout()
+    plt.savefig(f'GA/loss/walker_loss_history_{loss_metric}.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    print(f"Loss history plot saved to GA/loss/walker_loss_history_{loss_metric}.png")
+    return plt.gcf()
+
+
+
+
+
+
+
+
+def plot_mutation_info_3D(GA, population, fitnesses, base_sigma=1.0, mutation_type='gaussian'):
+    #print('Starting plot...')
+
+    # Calculate losses
+    losses = [fit[0] for fit in fitnesses]
+    max_loss = max(losses)
+    min_loss = min(losses)
+
+    # Update global min and max loss
+    if GA.global_min_loss is None or min_loss < GA.global_min_loss:
+        GA.global_min_loss = min_loss
+    if GA.global_max_loss is None or max_loss > GA.global_max_loss:
+        GA.global_max_loss = max_loss
+
+    threshold = np.median(losses)
+
+    # Identify successful and unsuccessful individuals
+    successful_inds = []
+    unsuccessful_inds = []
+    for ind, fit in zip(population, fitnesses):
+        if fit[0] <= threshold:
+            successful_inds.append((ind, fit[0]))
+        else:
+            unsuccessful_inds.append((ind, fit[0]))
+
+    # Number of genes
+    gene_names = ['sigma_2', 't_2', 'infall_2']
+    num_genes = len(gene_names)
+
+    # Collect data for accumulation
+    # Successful individuals
+    gene_values_successful = []
+    losses_successful = []
+    for ind, loss in successful_inds:
+        genes = ind[:num_genes]
+        gene_values_successful.append(genes)
+        losses_successful.append(loss)
+    GA.all_gene_values_successful.extend(gene_values_successful)
+    GA.all_losses_successful.extend(losses_successful)
+
+    # Unsuccessful individuals
+    gene_values_unsuccessful = []
+    losses_unsuccessful = []
+    for ind, loss in unsuccessful_inds:
+        genes = ind[:num_genes]
+        gene_values_unsuccessful.append(genes)
+        losses_unsuccessful.append(loss)
+    GA.all_gene_values_unsuccessful.extend(gene_values_unsuccessful)
+    GA.all_losses_unsuccessful.extend(losses_unsuccessful)
+
+    # Store gene bounds
+    current_gene_bounds = {
+        'xmin': GA.sigma_2_min,
+        'xmax': GA.sigma_2_max,
+        'ymin': GA.t_2_min,
+        'ymax': GA.t_2_max,
+        'zmin': GA.infall_2_min,
+        'zmax': GA.infall_2_max
+    }
+    GA.gene_bounds.append(current_gene_bounds)
+
+    # At the end of all generations, plot the accumulated data
+    if GA.gen + 1 == GA.num_generations:
+        # Prepare the colormap for losses
+        all_losses = GA.all_losses_successful + GA.all_losses_unsuccessful
+        min_loss = GA.global_min_loss
+        max_loss = GA.global_max_loss
+        loss_range = max_loss - min_loss if max_loss != min_loss else 1.0
+
+        # Normalize losses
+        losses_successful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_successful]
+        losses_unsuccessful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_unsuccessful]
+
+        # Create colormap (darker color for lower loss)
+        succmap = cm.get_cmap('YlGn')  # Reverse Greys for darker color at lower values
+        unsuccmap = cm.get_cmap('Reds_r')  # Reverse Greys for darker color at lower values
+        
+        colors_successful = [succmap(loss_norm) for loss_norm in losses_successful_norm]
+        colors_unsuccessful = [unsuccmap(loss_norm) for loss_norm in losses_unsuccessful_norm]
+
+
+        # Prepare the colormap for bounding boxes
+        num_generations = GA.num_generations
+        bbox_cmap = cm.get_cmap('Greys')
+        colors_bounding_boxes = [bbox_cmap(i / (num_generations - 1)) for i in range(num_generations)]
+
+        # Create a 3D scatter plot
+        fig = plt.figure(figsize=(12, 9))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot successful individuals
+        if len(GA.all_gene_values_successful) > 0:
+            gene_values_successful = np.array(GA.all_gene_values_successful)
+            ax.scatter(
+                gene_values_successful[:, 0],
+                gene_values_successful[:, 1],
+                gene_values_successful[:, 2],
+                color=colors_successful,
+                label='Successful',
+                alpha=0.6,
+                marker='o'
+            )
+
+        # Plot unsuccessful individuals
+        if len(GA.all_gene_values_unsuccessful) > 0:
+            gene_values_unsuccessful = np.array(GA.all_gene_values_unsuccessful)
+            ax.scatter(
+                gene_values_unsuccessful[:, 0],
+                gene_values_unsuccessful[:, 1],
+                gene_values_unsuccessful[:, 2],
+                color=colors_unsuccessful,
+                label='Unsuccessful',
+                alpha=0.6,
+                marker='^'
+            )
+
+        # Define the edges of the bounding box
+        edges = [
+            [0, 1], [0, 2], [0, 4],
+            [1, 3], [1, 5],
+            [2, 3], [2, 6],
+            [3, 7],
+            [4, 5], [4, 6],
+            [5, 7],
+            [6, 7]
+        ]
+
+        # Plot the bounding boxes
+        for i, gene_bound in enumerate(GA.gene_bounds):
+            color = colors_bounding_boxes[i]
+            # Extract bounds
+            xmin = gene_bound['xmin']
+            xmax = gene_bound['xmax']
+            ymin = gene_bound['ymin']
+            ymax = gene_bound['ymax']
+            zmin = gene_bound['zmin']
+            zmax = gene_bound['zmax']
+
+            # Define the corners of the bounding box
+            corners = np.array([
+                [xmin, ymin, zmin],
+                [xmin, ymin, zmax],
+                [xmin, ymax, zmin],
+                [xmin, ymax, zmax],
+                [xmax, ymin, zmin],
+                [xmax, ymin, zmax],
+                [xmax, ymax, zmin],
+                [xmax, ymax, zmax]
+            ])
+
+            # Plot the edges of the bounding box
+            for edge in edges:
+                x = [corners[edge[0], 0], corners[edge[1], 0]]
+                y = [corners[edge[0], 1], corners[edge[1], 1]]
+                z = [corners[edge[0], 2], corners[edge[1], 2]]
+                ax.plot(x, y, z, color=color, linestyle='--', alpha=0.5)
+
+        # Customize plot
+        ax.set_title("3D Scatter Plot of Individuals with Gene Bounds")
+        ax.set_xlabel(gene_names[0])
+        ax.set_ylabel(gene_names[1])
+        ax.set_zlabel(gene_names[2])
+        ax.legend()
+
+        # Adjust the viewing angle for better visualization
+        ax.view_init(elev=20., azim=-35)
+
+        plt.tight_layout()
+        plt.savefig('GA/MDF_individuals_3D.png', bbox_inches='tight')
+        #plt.show()
+        print('...plot made!')
+
+
+
+def plot_mutation_info_2d(GA, population, fitnesses, base_sigma=1.0, mutation_type='gaussian'):
+    # Calculate losses
+    losses = [fit[0] for fit in fitnesses]
+    max_loss = max(losses)
+    min_loss = min(losses)
+
+    # Update global min and max loss
+    if GA.global_min_loss is None or min_loss < GA.global_min_loss:
+        GA.global_min_loss = min_loss
+    if GA.global_max_loss is None or max_loss > GA.global_max_loss:
+        GA.global_max_loss = max_loss
+
+    threshold = np.median(losses)
+
+    # Identify successful and unsuccessful individuals
+    successful_inds = []
+    unsuccessful_inds = []
+    for ind, fit in zip(population, fitnesses):
+        if fit[0] <= threshold:
+            successful_inds.append((ind, fit[0]))
+        else:
+            unsuccessful_inds.append((ind, fit[0]))
+
+    # Number of genes (excluding sigma)
+    gene_names = ['t_2', 'infall_2']
+    num_genes = len(gene_names)
+
+    # Collect data for accumulation
+    # Successful individuals
+    gene_values_successful = []
+    losses_successful = []
+    for ind, loss in successful_inds:
+        genes = ind[1:num_genes+1]  # Only take `t_2` and `infall_2`
+        gene_values_successful.append(genes)
+        losses_successful.append(loss)
+    GA.all_gene_values_successful.extend(gene_values_successful)
+    GA.all_losses_successful.extend(losses_successful)
+
+    # Unsuccessful individuals
+    gene_values_unsuccessful = []
+    losses_unsuccessful = []
+    for ind, loss in unsuccessful_inds:
+        genes = ind[1:num_genes+1]  # Only take `t_2` and `infall_2`
+        gene_values_unsuccessful.append(genes)
+        losses_unsuccessful.append(loss)
+    GA.all_gene_values_unsuccessful.extend(gene_values_unsuccessful)
+    GA.all_losses_unsuccessful.extend(losses_unsuccessful)
+
+    # Store gene bounds
+    current_gene_bounds = {
+        'xmin': GA.t_2_min,
+        'xmax': GA.t_2_max,
+        'ymin': GA.infall_2_min,
+        'ymax': GA.infall_2_max
+    }
+    GA.gene_bounds.append(current_gene_bounds)
+
+    # At the end of all generations, plot the accumulated data
+    if GA.gen + 1 == GA.num_generations:
+        # Prepare the colormap for losses
+        all_losses = GA.all_losses_successful + GA.all_losses_unsuccessful
+        min_loss = GA.global_min_loss
+        max_loss = GA.global_max_loss
+        loss_range = max_loss - min_loss if max_loss != min_loss else 1.0
+
+        # Normalize losses
+        losses_successful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_successful]
+        losses_unsuccessful_norm = [(loss - min_loss) / loss_range for loss in GA.all_losses_unsuccessful]
+
+        # Create colormaps
+        succmap = cm.get_cmap('YlGn')
+        unsuccmap = cm.get_cmap('Reds_r')
+
+        colors_successful = [succmap(loss_norm) for loss_norm in losses_successful_norm]
+        colors_unsuccessful = [unsuccmap(loss_norm) for loss_norm in losses_unsuccessful_norm]
+
+        # Prepare the colormap for bounding boxes
+        num_generations = GA.num_generations
+        bbox_cmap = cm.get_cmap('Greys')
+        colors_bounding_boxes = [bbox_cmap(i / (num_generations - 1)) for i in range(num_generations)]
+
+        # Create a 2D scatter plot
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        # Plot successful individuals
+        if len(GA.all_gene_values_successful) > 0:
+            gene_values_successful = np.array(GA.all_gene_values_successful)
+            ax.scatter(
+                gene_values_successful[:, 0],  # t_2
+                gene_values_successful[:, 1],  # infall_2
+                color=colors_successful,
+                label='Successful',
+                alpha=0.6,
+                marker='o'
+            )
+
+        # Plot unsuccessful individuals
+        if len(GA.all_gene_values_unsuccessful) > 0:
+            gene_values_unsuccessful = np.array(GA.all_gene_values_unsuccessful)
+            ax.scatter(
+                gene_values_unsuccessful[:, 0],  # t_2
+                gene_values_unsuccessful[:, 1],  # infall_2
+                color=colors_unsuccessful,
+                label='Unsuccessful',
+                alpha=0.6,
+                marker='^'
+            )
+
+        # Plot the bounding boxes
+        for i, gene_bound in enumerate(GA.gene_bounds):
+            color = colors_bounding_boxes[i]
+            xmin, xmax = gene_bound['xmin'], gene_bound['xmax']
+            ymin, ymax = gene_bound['ymin'], gene_bound['ymax']
+
+            # Plot the bounding box as a rectangle
+            ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
+                                       edgecolor=color, fill=False, linestyle='--', alpha=0.5))
+
+        # Customize plot
+        ax.set_title("2D Scatter Plot of Individuals with Gene Bounds")
+        ax.set_xlabel(gene_names[0])
+        ax.set_ylabel(gene_names[1])
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig('GA/MDF_individuals_2D.png', bbox_inches='tight')
+        print('...2D plot made!')
+
+
+
+
+
+
+
+
+
 def generate_all_plots(GalGA, feh, normalized_count, results_file='GA/simulation_results.csv'):
     """Generate all plots from GalGA results"""
     # Ensure directories exist
@@ -224,14 +676,20 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file='GA/simulation
     for metric_name, metric_vals in metrics_dict.items():
         plot_2d_scatter(t_2_vals, infall_2_vals, metric_vals, metric_name)
     
-    # 4. Plot walker history
+
     print("Generating walker evolution plots...")
     param_names = ["sigma_2", "t_2", "infall_2"]
     param_indices = [5, 7, 9]  # Indices in the individual arrays
     plot_walker_history(GalGA.walker_history, param_names, param_indices)
     
+    # NEW: Plot loss history for each walker
+    print("Generating walker loss history plots...")
+    for metric in ['wrmse', 'huber', 'mae', 'cosine']:
+        plot_walker_loss_history(GalGA.walker_history, results_file, loss_metric=metric)
+
     # 5. Create 3D animation
     print("Generating 3D animation...")
     create_3d_animation(GalGA.walker_history)
-    
+
+
     print("All plotting complete! Check the GA directory for results.")
