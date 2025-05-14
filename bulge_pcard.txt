@@ -79,6 +79,7 @@ tmax_1_list: [0.1,0.11] # for two infall scenario, sweep
 ## default thin disk assumption is 8 Gyr ago (+/- 5 Gyr) long, slow inflow at solar -- Gaia Enceladus Sausage
 #
 
+
 tmax_2_list: [1,100]
 
 ############################################################
